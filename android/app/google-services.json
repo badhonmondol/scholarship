@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "93668678282",
+    "project_id": "scholarship-app-1286b",
+    "storage_bucket": "scholarship-app-1286b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:93668678282:android:32777a3513a7fb026dab73",
+        "android_client_info": {
+          "package_name": "com.example.scholar_search"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "93668678282-rvsob5bo8rpm2iten5fo58r0rpnon7aq.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCmeL77uEOIYpycf0y6-BbjO_VCBG60xto"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "93668678282-rvsob5bo8rpm2iten5fo58r0rpnon7aq.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "93668678282-sgr4u6dg9d97u4cqqrs5o4pn0prtv0i8.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.scholarSearch"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

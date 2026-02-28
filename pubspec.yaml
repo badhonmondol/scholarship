@@ -1,0 +1,35 @@
+name: scholar_search
+description: ScholarSearch - Auto-syncing scholarship finder. 100+ scholarships, 50+ countries, zero manual work.
+version: 1.0.0+1
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Firebase (Required)
+  firebase_core: ^3.3.0
+  cloud_firestore: ^5.2.1
+
+  # HTTP requests (auto-fetching external scholarships)
+  http: ^1.2.1
+
+  # Open scholarship URLs in browser
+  url_launcher: ^6.3.0
+
+  # Store last sync time locally
+  shared_preferences: ^2.3.2
+
+  # Number formatting ($35,000)
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
