@@ -53,7 +53,7 @@ A Flutter scholarship finder app that helps international students discover Bach
 ### 1. Clone & install
 
 ```bash
-git clone https://github.com/your-username/scholar_search.git
+git clone https://github.com/badhonmondol/scholar_search.git
 cd scholar_search
 flutter pub get
 ```
