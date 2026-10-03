@@ -1269,22 +1269,21 @@ class SyncEngine {
     for (final s in _kData) {
       try {
         final id   = _docId(s['title'] as String);
-        final snap = await col.doc(id).get();
-        if (!snap.exists) {
-          final code = s['code'] as String;
-          await col.doc(id).set({
-            'title': s['title'],         'university': s['university'],
-            'country': s['country'],     'code': code,
-            'flag': _flag(code),
-            'degree': s['degree'],       'field': s['field'],
-            'fields': s['fields'],
-            'funding': s['funding'],     'deadline': s['deadline'] ?? '',
-            'description': s['description'], 'applyUrl': s['applyUrl'],
-            'amount': s['amount'],       'isNew': true,
-            'addedAt': Timestamp.fromDate(DateTime.now()),
-            'tags': s['tags'],           'source': 'bachelor-portal',
-          });
-        }
+        final code = s['code'] as String;
+        // Use set with merge:true so changes in _kData (deadline, amount, etc.)
+        // are reflected in Firestore on next sync, not just on first write.
+        await col.doc(id).set({
+          'title': s['title'],         'university': s['university'],
+          'country': s['country'],     'code': code,
+          'flag': _flag(code),
+          'degree': s['degree'],       'field': s['field'],
+          'fields': s['fields'],
+          'funding': s['funding'],     'deadline': s['deadline'] ?? '',
+          'description': s['description'], 'applyUrl': s['applyUrl'],
+          'amount': s['amount'],       'isNew': true,
+          'addedAt': Timestamp.fromDate(DateTime.now()),
+          'tags': s['tags'],           'source': 'bachelor-portal',
+        }, SetOptions(merge: true));
       } catch (e) { debugPrint('Seed error: $e'); }
     }
   }
@@ -1431,6 +1430,38 @@ class _HomeState extends State<_Home> {
   String _fund   = 'All';
 
   final _sc = TextEditingController();
+
+  // ── Saved persistence via SharedPreferences ──────────────────
+  static const _kSavedKey = 'saved_ids';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSaved();
+  }
+
+  Future<void> _loadSaved() async {
+    final prefs = await SharedPreferences.getInstance();
+    final ids = prefs.getStringList(_kSavedKey) ?? [];
+    if (mounted) setState(() => _saved.addAll(ids));
+  }
+
+  Future<void> _persistSaved() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_kSavedKey, _saved.toList());
+  }
+
+  void _toggleSave(String id) {
+    setState(() {
+      if (_saved.contains(id)) {
+        _saved.remove(id);
+      } else {
+        _saved.add(id);
+      }
+    });
+    _persistSaved();
+  }
+  // ─────────────────────────────────────────────────────────────
 
   Future<void> _sync() async {
     setState(() => _syncing = true);
@@ -1760,14 +1791,7 @@ class _HomeState extends State<_Home> {
   Widget _scholarshipList() => StreamBuilder<QuerySnapshot>(
     stream: FirebaseFirestore.instance.collection('scholarships').snapshots(),
     builder: (_, snap) {
-      if (snap.connectionState == ConnectionState.waiting) {
-        return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-          CircularProgressIndicator(color: C.primary),
-          SizedBox(height: 16),
-          Text('Loading programs...', style: TextStyle(color: C.tMid, fontSize: 14)),
-        ]));
-      }
-
+      // Show error state regardless of connection state
       if (snap.hasError) {
         return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
           const Icon(Icons.error_outline_rounded, size: 56, color: C.red),
@@ -1778,6 +1802,23 @@ class _HomeState extends State<_Home> {
         ]));
       }
 
+      // Show spinner only when truly waiting AND no cached data is available yet.
+      // ConnectionState.none  → stream not yet subscribed (treat same as waiting)
+      // ConnectionState.waiting → first event not yet received
+      // ConnectionState.active  → stream is live, data is flowing
+      // ConnectionState.done    → stream closed (shouldn't happen with Firestore)
+      final isLoading = (snap.connectionState == ConnectionState.waiting ||
+                         snap.connectionState == ConnectionState.none) &&
+                        !snap.hasData;
+      if (isLoading) {
+        return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          CircularProgressIndicator(color: C.primary),
+          SizedBox(height: 16),
+          Text('Loading programs...', style: TextStyle(color: C.tMid, fontSize: 14)),
+        ]));
+      }
+
+      // No documents yet — Firestore collection is empty, prompt a sync
       if (!snap.hasData || snap.data!.docs.isEmpty) {
         return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
           const Icon(Icons.cloud_off_rounded, size: 64, color: C.tLight),
@@ -1820,8 +1861,7 @@ class _HomeState extends State<_Home> {
             return _ScholarCard(
               key: ValueKey(s.id), s: s,
               saved: _saved.contains(s.id),
-              onSave: () => setState(() =>
-                _saved.contains(s.id) ? _saved.remove(s.id) : _saved.add(s.id)),
+              onSave: () => _toggleSave(s.id),
               delay: Duration(milliseconds: ((i - 1) * 35).clamp(0, 280)),
             );
           },
@@ -1863,7 +1903,10 @@ class _HomeState extends State<_Home> {
       backgroundColor: C.white, elevation: 1,
       title: const Text('Saved Programs', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
       actions: [if (_saved.isNotEmpty) TextButton(
-        onPressed: () => setState(() => _saved.clear()),
+        onPressed: () {
+          setState(() => _saved.clear());
+          _persistSaved();
+        },
         child: const Text('Clear all', style: TextStyle(color: C.red)),
       )],
     ),
@@ -1875,42 +1918,8 @@ class _HomeState extends State<_Home> {
             SizedBox(height: 8),
             Text('Tap 🔖 on any program to save it', style: TextStyle(color: C.tMid)),
           ]))
-        : FutureBuilder<List<Scholarship>>(
-            future: _fetchSavedChunked(),
-            builder: (_, snap) {
-              if (snap.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator(color: C.primary));
-              }
-              if (!snap.hasData || snap.data!.isEmpty) {
-                return const Center(child: Text('No saved programs found.'));
-              }
-              final list = snap.data!;
-              return ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: list.length,
-                itemBuilder: (_, i) => _ScholarCard(
-                  key: ValueKey(list[i].id), s: list[i], saved: true,
-                  onSave: () => setState(() => _saved.remove(list[i].id)),
-                ),
-              );
-            },
-          ),
+        : _SavedList(savedIds: _saved, onUnsave: (id) => _toggleSave(id)),
   );
-
-  Future<List<Scholarship>> _fetchSavedChunked() async {
-    final ids = _saved.toList();
-    if (ids.isEmpty) return [];
-    List<Scholarship> results = [];
-    for (int i = 0; i < ids.length; i += 30) {
-      final chunk = ids.skip(i).take(30).toList();
-      final snap = await FirebaseFirestore.instance
-          .collection('scholarships')
-          .where(FieldPath.documentId, whereIn: chunk)
-          .get();
-      results.addAll(snap.docs.map((d) => Scholarship.fromDoc(d)));
-    }
-    return results;
-  }
 
   Widget _profile() => Scaffold(
     backgroundColor: C.bg,
@@ -2072,6 +2081,84 @@ class _HomeState extends State<_Home> {
         Text(sub, style: const TextStyle(fontSize: 11, color: C.tMid)),
       ])),
     ]),
+  );
+}
+
+// ── SAVED LIST (realtime StreamBuilder, chunked by 30) ─────────
+class _SavedList extends StatefulWidget {
+  final Set<String> savedIds;
+  final void Function(String id) onUnsave;
+  const _SavedList({required this.savedIds, required this.onUnsave});
+  @override State<_SavedList> createState() => _SavedListState();
+}
+
+class _SavedListState extends State<_SavedList> {
+  // Firestore `whereIn` is capped at 30 items per query.
+  // We fan out into multiple streams and merge the results.
+  Stream<List<Scholarship>> _buildStream() {
+    final ids = widget.savedIds.toList();
+    if (ids.isEmpty) return Stream.value([]);
+
+    final chunks = <List<String>>[];
+    for (int i = 0; i < ids.length; i += 30) {
+      chunks.add(ids.skip(i).take(30).toList());
+    }
+
+    final streams = chunks.map((chunk) =>
+      FirebaseFirestore.instance
+          .collection('scholarships')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .snapshots()
+          .map((qs) => qs.docs.map(Scholarship.fromDoc).toList()),
+    ).toList();
+
+    // Combine all chunk streams into one merged list
+    if (streams.length == 1) return streams.first;
+
+    return streams.fold<Stream<List<Scholarship>>>(
+      streams.first,
+      (acc, next) => acc.asyncMap((a) async {
+        final b = await next.first;
+        return [...a, ...b];
+      }),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<List<Scholarship>>(
+    stream: _buildStream(),
+    builder: (_, snap) {
+      if (snap.connectionState == ConnectionState.waiting) {
+        return const Center(child: CircularProgressIndicator(color: C.primary));
+      }
+      if (snap.hasError) {
+        return Center(child: Text('Error: ${snap.error}',
+          style: const TextStyle(color: C.red)));
+      }
+      final list = snap.data ?? [];
+      if (list.isEmpty) {
+        return const Center(child: Text('No saved programs found.',
+          style: TextStyle(color: C.tMid)));
+      }
+      // Keep display order matching savedIds order
+      final ordered = widget.savedIds
+          .map((id) {
+            try { return list.firstWhere((s) => s.id == id); }
+            catch (_) { return null; }
+          })
+          .whereType<Scholarship>()
+          .toList();
+      return ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: ordered.length,
+        itemBuilder: (_, i) => _ScholarCard(
+          key: ValueKey(ordered[i].id),
+          s: ordered[i],
+          saved: true,
+          onSave: () => widget.onUnsave(ordered[i].id),
+        ),
+      );
+    },
   );
 }
 
